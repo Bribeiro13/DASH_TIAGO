@@ -20,6 +20,12 @@ function fmtDate(d) {
 }
 function num(v) { return parseFloat(v) || 0; }
 
+function fmtDuration(hours) {
+  const h = Number(hours);
+  if (h > 0 && h < 1) return Math.round(h * 60) + ' min';
+  return h.toFixed(1).replace('.0', '') + ' h';
+}
+
 function showToast(msg, type = '') {
   const t = document.getElementById('toast');
   t.textContent = msg; t.className = 'toast show ' + type;
@@ -102,15 +108,16 @@ function updateKPIs(data) {
   const pct = total ? Math.round(concluidas/total*100) : 0;
   const durations = data.map(r => num(r.duracao));
   const sum = arr => arr.reduce((a,b)=>a+b,0);
-  const avg = arr => arr.length ? (sum(arr)/arr.length).toFixed(1) : 0;
+  const avg = arr => arr.length ? (sum(arr)/arr.length) : 0;
+  
   document.getElementById('kpiTotal').textContent = total;
   document.getElementById('kpiConcluidas').textContent = `${concluidas}/${total} (${pct}%)`;
-  document.getElementById('kpiMediaDuracao').textContent = `${avg(durations)} h`;
-  document.getElementById('kpiMediaManutencao').textContent = `${avg(data.map(r=>num(r.manutencao)))} h`;
-  document.getElementById('kpiMediaBloqueio').textContent = `${avg(data.map(r=>num(r.bloqueio)))} h`;
-  document.getElementById('kpiEsperaTestes').textContent = `${total?Math.round(sum(data.map(r=>num(r.esperaTestes)))/total):0} min`;
-  document.getElementById('kpiOmsPendentes').textContent = data.filter(r=>r.oms&&r.oms.trim()&&r.oms.trim()!=='—').length;
-  document.getElementById('kpiMaiorDowntime').textContent = `${durations.length?Math.max(...durations):0} h`;
+  document.getElementById('kpiMediaDuracao').textContent = fmtDuration(avg(durations));
+  document.getElementById('kpiMediaManutencao').textContent = fmtDuration(avg(data.map(r=>num(r.manutencao))));
+  document.getElementById('kpiMediaBloqueio').textContent = fmtDuration(avg(data.map(r=>num(r.bloqueio))));
+  document.getElementById('kpiMediaDesbloqueio').textContent = fmtDuration(avg(data.map(r=>num(r.desbloqueio))));
+  document.getElementById('kpiMediaTestes').textContent = fmtDuration(avg(data.map(r=>num(r.testes))));
+  document.getElementById('kpiOmsPendentes').textContent = data.filter(r=>r.oms&&String(r.oms).trim()&&String(r.oms).trim()!=='—').length;
   document.getElementById('gaugePercent').textContent = pct+'%';
   document.getElementById('legendConcluidas').textContent = `Concluídas ${pct}%`;
   document.getElementById('legendPendentes').textContent = `Pendentes ${100-pct}%`;
@@ -168,7 +175,7 @@ function renderTable(data) {
     return `<tr class="${isPend?'row-pending':''}">
       <td class="td-machine">${r.maquina||'—'}</td>
       <td>${fmtDate(r.dataRaw||r.data)}</td>
-      <td class="td-duration">${num(r.duracao).toFixed(1)} h</td>
+      <td class="td-duration">${fmtDuration(r.duracao)}</td>
       <td><span class="badge badge-${isPend?'nao':'sim'}">${r.atividades||'Sim'}</span></td>
       <td class="td-oms">${r.oms||'—'}</td>
       <td class="td-motivo">${r.motivo||'—'}</td>
@@ -388,21 +395,59 @@ document.querySelectorAll('.tab-btn').forEach(b => b.addEventListener('click', (
 // ── FILE IMPORT ───────────────────────────────────────────────────────────────
 const FIELD_LABELS = {
   maquina:'Máquina', data:'Data', duracao:'Duração (h)', atividades:'Atividades',
-  oms:'OMS Pendentes', bloqueio:'Bloqueio (h)', manutencao:'Manutenção (h)',
-  desbloqueio:'Desbloqueio (h)', testes:'Testes (h)', esperaTestes:'Espera Testes (min)',
+  oms:'OMS Pendentes', 
+  bloqIni:'Horário inicial de bloqueio da máquina', 
+  bloqFim:'Horário final de bloqueio da máquina',
+  manutIni:'Horário inicial das atividades de manutenção', 
+  manutFim:'Horário Final das atividades de manutenção',
+  desbIni:'Horário inicial de desbloqueio da máquina para operação', 
+  desbFim:'Horário final de desbloqueio da máquina para operação',
+  testesIni:'Horário que o responsável acionou para testes', 
+  testesFim:'Horário de finalização dos testes e entrega da máquina',
+  esperaTestes:'Espera Testes (min)',
   motivo:'Motivo', observacoes:'Observações',
 };
 
 function autoGuess(headers, key) {
-  const norm = s => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,'');
-  const kw = { maquina:['maquina','machine','equipamento'], data:['data','date','dia'],
+  const norm = s => String(s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,'');
+  const kw = { 
+    maquina:['maquina','machine','equipamento'], data:['data','date','dia'],
     duracao:['duracao','duration','horas','tempo'], atividades:['atividade','concluida','status'],
-    oms:['oms','ordem','os','pendente'], bloqueio:['bloqueio','block'],
-    manutencao:['manutencao','maintenance','manut'], desbloqueio:['desbloqueio'],
-    testes:['teste','test'], esperaTestes:['espera','waiting'],
+    oms:['oms','ordem','os','pendente'], 
+    bloqIni:['horarioinicialdebloqueio','inicialdebloqueio','iniciobloqueio'], 
+    bloqFim:['horariofinaldebloqueio','finaldebloqueio','fimbloqueio'],
+    manutIni:['horarioinicialdasatividades','horarioinicialatividades','inicialdemanutencao','iniciomanutencao'], 
+    manutFim:['horariofinaldasatividades','horariofinalatividades','finaldemanutencao','fimmanutencao'],
+    desbIni:['horarioinicialdedesbloqueio','inicialdedesbloqueio','iniciodesbloqueio'], 
+    desbFim:['horariofinaldedesbloqueio','finaldedesbloqueio','fimdesbloqueio'],
+    testesIni:['responsavelacionou','responsavelpela','acionouparaoperacao','iniciotestes'], 
+    testesFim:['finalizacaodostestes','fimtestes'],
+    esperaTestes:['espera','waiting'],
     motivo:['motivo','reason','causa'], observacoes:['obs','observ','nota','comment'],
   };
-  return headers.find(h => (kw[key]||[]).some(k => norm(h).includes(k))) || '';
+  return headers.find(h => {
+    const n = norm(h);
+    return (kw[key]||[]).some(k => n.includes(k));
+  }) || '';
+}
+
+function diffHours(start, end) {
+  if (start === '' || end === '' || start == null || end == null) return 0;
+  const parseTime = (val) => {
+    if (typeof val === 'number') return val * 24;
+    if (val instanceof Date) return val.getHours() + val.getMinutes() / 60 + val.getSeconds() / 3600;
+    if (typeof val === 'string') {
+      const match = val.match(/(\d{1,2}):(\d{2})/);
+      if (match) return parseInt(match[1], 10) + parseInt(match[2], 10) / 60;
+    }
+    return null;
+  };
+  const s = parseTime(start);
+  const e = parseTime(end);
+  if (s === null || e === null) return 0;
+  let diff = e - s;
+  if (diff < 0) diff += 24; // Cross midnight
+  return Number(diff.toFixed(2));
 }
 
 function openImportModal(headers, rows, fileName, fileSize) {
@@ -430,13 +475,24 @@ document.getElementById('importConfirm').addEventListener('click', async () => {
   Object.keys(FIELD_LABELS).forEach(key => { const s = document.getElementById('map_'+key); if(s&&s.value) mapping[key]=s.value; });
   const rows = importedRows.map(row => {
     const rec = {};
-    Object.entries(mapping).forEach(([f,col]) => { rec[f] = row[col]!==undefined?String(row[col]).trim():''; });
-    if (!rec.maquina) return null;
-    rec.duracao=num(rec.duracao); rec.bloqueio=num(rec.bloqueio); rec.manutencao=num(rec.manutencao);
-    rec.desbloqueio=num(rec.desbloqueio); rec.testes=num(rec.testes); rec.esperaTestes=num(rec.esperaTestes);
+    Object.entries(mapping).forEach(([f,col]) => { rec[f] = row[col]!==undefined?row[col]:''; });
+    if (!String(rec.maquina).trim()) return null;
+    
+    rec.bloqueio = diffHours(rec.bloqIni, rec.bloqFim);
+    rec.manutencao = diffHours(rec.manutIni, rec.manutFim);
+    rec.desbloqueio = diffHours(rec.desbIni, rec.desbFim);
+    rec.testes = diffHours(rec.testesIni, rec.testesFim);
+    
+    rec.duracao = num(rec.duracao); 
+    rec.esperaTestes = num(rec.esperaTestes);
     rec.dataRaw = rec.data || '';
-    const low = (rec.atividades||'').toLowerCase();
+    
+    const low = String(rec.atividades||'').toLowerCase().trim();
     rec.atividades = (low==='sim'||low==='yes'||low==='1'||low==='true') ? 'Sim' : (low===''?'Sim':'Não');
+    
+    // Cleanup keys that aren't needed in DB
+    ['bloqIni','bloqFim','manutIni','manutFim','desbIni','desbFim','testesIni','testesFim'].forEach(k => delete rec[k]);
+    
     return rec;
   }).filter(Boolean);
   if (!rows.length) { showToast('Nenhum registro válido (coluna Máquina vazia?).', 'error'); return; }
