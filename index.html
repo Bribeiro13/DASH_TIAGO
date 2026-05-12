@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard Manutenções Preventivas — CDQ</title>
+  <meta name="description" content="Dashboard de manutenções preventivas CDQ com análise de paradas, eficiência e planejamento vs realizado." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- HEADER -->
+  <header class="header">
+    <div class="header-title">
+      <span class="header-icon">⚙️</span>
+      <div>
+        <h1>Dashboard Manutenções Preventivas</h1>
+        <span class="header-sub">CDQ — Centro de Qualidade</span>
+      </div>
+    </div>
+    <div class="header-controls">
+      <span class="conn-dot" id="connDot" title="Verificando conexão…"></span>
+      <div class="select-wrapper">
+        <select id="filterMachine"><option value="">Todas as máquinas</option></select>
+      </div>
+      <div class="select-wrapper">
+        <select id="filterStatus">
+          <option value="">Todos os status</option>
+          <option value="sim">Concluído</option>
+          <option value="não">Pendente</option>
+        </select>
+      </div>
+      <button class="btn-manage" id="btnGerenciar">⚙️ Gerenciar</button>
+      <button class="btn-primary" id="btnNovoRegistro">+ Novo registro</button>
+      <label class="btn-import" title="Importar XLSX ou CSV">
+        <span>📂 Importar</span>
+        <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" style="display:none;" />
+      </label>
+    </div>
+  </header>
+
+  <main class="main-content">
+    <!-- KPI CARDS -->
+    <section class="kpi-grid">
+      <div class="kpi-card"><span class="kpi-label">TOTAL DE PARADAS</span><span class="kpi-value" id="kpiTotal">—</span></div>
+      <div class="kpi-card"><span class="kpi-label">ATIVIDADES CONCLUÍDAS</span><span class="kpi-value highlight-green" id="kpiConcluidas">—</span></div>
+      <div class="kpi-card"><span class="kpi-label">MÉDIA DURAÇÃO TOTAL</span><span class="kpi-value" id="kpiMediaDuracao">—</span></div>
+      <div class="kpi-card"><span class="kpi-label">MÉDIA MANUTENÇÃO</span><span class="kpi-value" id="kpiMediaManutencao">—</span></div>
+      <div class="kpi-card"><span class="kpi-label">MÉDIA BLOQUEIO/LIMPEZA</span><span class="kpi-value" id="kpiMediaBloqueio">—</span></div>
+      <div class="kpi-card"><span class="kpi-label">ESPERA DE TESTES</span><span class="kpi-value" id="kpiEsperaTestes">—</span></div>
+      <div class="kpi-card"><span class="kpi-label">OMS COM PENDÊNCIAS</span><span class="kpi-value highlight-red" id="kpiOmsPendentes">—</span></div>
+      <div class="kpi-card"><span class="kpi-label">MAIOR DOWNTIME</span><span class="kpi-value" id="kpiMaiorDowntime">—</span></div>
+    </section>
+
+    <!-- CHARTS ROW 1 -->
+    <section class="charts-row">
+      <div class="chart-card">
+        <div class="chart-header"><h2 class="chart-title">Tendência de Duração das Paradas</h2></div>
+        <div class="chart-wrap chart-wrap--line"><canvas id="chartTendencia"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-header"><h2 class="chart-title">Eficiência das Atividades</h2></div>
+        <div class="gauge-container">
+          <canvas id="chartGauge"></canvas>
+          <div class="gauge-center"><span class="gauge-percent" id="gaugePercent">0%</span></div>
+        </div>
+        <div class="gauge-legend">
+          <span class="legend-dot green"></span><span id="legendConcluidas">Concluídas 0%</span>
+          <span class="legend-dot red"></span><span id="legendPendentes">Pendentes 0%</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- CHARTS ROW 2 -->
+    <section class="charts-row two-col">
+      <div class="chart-card">
+        <div class="chart-header"><h2 class="chart-title">Ranking de Máquinas (Downtime Total)</h2></div>
+        <div class="chart-wrap chart-wrap--bar"><canvas id="chartRanking"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-header"><h2 class="chart-title">Bloqueio vs Manutenção vs Testes</h2></div>
+        <div class="chart-wrap chart-wrap--stacked"><canvas id="chartStacked"></canvas></div>
+        <div class="stacked-legend">
+          <span class="legend-dot blue"></span><span>Bloqueio</span>
+          <span class="legend-dot green"></span><span>Manutenção</span>
+          <span class="legend-dot orange"></span><span>Desbloqueio</span>
+          <span class="legend-dot red"></span><span>Testes</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- TABLE -->
+    <section class="table-section">
+      <div class="table-header">
+        <h2 class="table-title">Planejado vs Realizado</h2>
+        <button class="btn-primary" id="btnAdicionar">+ Adicionar</button>
+      </div>
+      <div class="table-wrapper">
+        <table id="mainTable">
+          <thead>
+            <tr>
+              <th>MÁQUINA</th><th>DATA</th><th>DURAÇÃO</th><th>ATIVIDADES</th>
+              <th>OMS PENDENTES</th><th>MOTIVO</th><th>OBSERVAÇÕES</th><th>AÇÕES</th>
+            </tr>
+          </thead>
+          <tbody id="tableBody">
+            <tr class="empty-row"><td colspan="8"><div class="empty-state"><span class="empty-icon">⏳</span><p>Carregando dados…</p></div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <!-- MODAL: Novo/Editar Registro -->
+  <div class="modal-overlay" id="modalOverlay">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="modalTitle">Novo Registro</h3>
+        <button class="modal-close" id="modalClose">✕</button>
+      </div>
+      <form id="recordForm" class="modal-form">
+        <input type="hidden" id="editId" />
+        <div class="form-grid">
+          <div class="form-group"><label>Máquina *</label><input type="text" id="fMaquina" placeholder="ex: MD2" required /></div>
+          <div class="form-group"><label>Data *</label><input type="date" id="fData" required /></div>
+          <div class="form-group"><label>Duração (h) *</label><input type="number" id="fDuracao" step="0.1" min="0" placeholder="ex: 10.5" required /></div>
+          <div class="form-group"><label>Atividades concluídas?</label><select id="fAtividades"><option value="sim">Sim</option><option value="nao">Não</option></select></div>
+          <div class="form-group"><label>OMS Pendentes</label><input type="text" id="fOms" placeholder="Número da OMS" /></div>
+          <div class="form-group"><label>Bloqueio (h)</label><input type="number" id="fBloqueio" step="0.1" min="0" value="0" /></div>
+          <div class="form-group"><label>Manutenção (h)</label><input type="number" id="fManutencao" step="0.1" min="0" value="0" /></div>
+          <div class="form-group"><label>Desbloqueio (h)</label><input type="number" id="fDesbloqueio" step="0.1" min="0" value="0" /></div>
+          <div class="form-group"><label>Testes (h)</label><input type="number" id="fTestes" step="0.1" min="0" value="0" /></div>
+          <div class="form-group"><label>Espera Testes (min)</label><input type="number" id="fEsperaTestes" step="1" min="0" value="0" /></div>
+          <div class="form-group form-full"><label>Motivo</label><input type="text" id="fMotivo" placeholder="Descreva o motivo da parada" /></div>
+          <div class="form-group form-full"><label>Observações</label><textarea id="fObservacoes" rows="2" placeholder="Observações adicionais"></textarea></div>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn-secondary" id="btnCancelar">Cancelar</button>
+          <button type="submit" class="btn-primary">Salvar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: Importação -->
+  <div class="modal-overlay" id="importOverlay">
+    <div class="modal modal-large">
+      <div class="modal-header">
+        <h3>Prévia da Importação</h3>
+        <button class="modal-close" id="importClose">✕</button>
+      </div>
+      <div class="import-info">
+        <span id="importFileName"></span>
+        <span id="importRowCount"></span>
+      </div>
+      <div class="column-map-section">
+        <h4>Mapeamento de Colunas</h4>
+        <p class="map-hint">Associe as colunas do arquivo com os campos do dashboard:</p>
+        <div id="columnMapping" class="column-map-grid"></div>
+      </div>
+      <div class="import-preview-table">
+        <p class="map-hint">Prévia (primeiras 5 linhas):</p>
+        <div class="table-wrapper" id="previewTableWrapper"></div>
+      </div>
+      <div class="form-actions" style="padding:0 24px 20px;">
+        <button type="button" class="btn-secondary" id="importCancel">Cancelar</button>
+        <button type="button" class="btn-primary" id="importConfirm">Importar dados</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Gerenciar Dados -->
+  <div class="modal-overlay" id="manageOverlay">
+    <div class="modal modal-large">
+      <div class="modal-header">
+        <h3>⚙️ Gerenciar Dados</h3>
+        <button class="modal-close" id="manageClose">✕</button>
+      </div>
+      <div class="manage-tabs">
+        <button class="tab-btn active" data-tab="files">📂 Arquivos Importados</button>
+        <button class="tab-btn" data-tab="machines">🔧 Máquinas</button>
+      </div>
+      <div class="tab-content" id="tabFiles">
+        <div id="filesList"><p class="manage-empty">Carregando…</p></div>
+      </div>
+      <div class="tab-content hidden" id="tabMachines">
+        <div id="machinesList"><p class="manage-empty">Carregando…</p></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Confirmação -->
+  <div class="modal-overlay" id="confirmOverlay">
+    <div class="modal modal-confirm">
+      <div class="confirm-icon">⚠️</div>
+      <h3 class="confirm-title" id="confirmTitle">Confirmar ação</h3>
+      <p class="confirm-message" id="confirmMessage"></p>
+      <div class="form-actions" style="justify-content:center;gap:12px;margin-top:20px;">
+        <button class="btn-secondary" id="confirmCancel">Cancelar</button>
+        <button class="btn-danger" id="confirmOk">Sim, excluir</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOAST -->
+  <div class="toast" id="toast"></div>
+
+  <script src="supabase-config.js"></script>
+  <script src="db.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
